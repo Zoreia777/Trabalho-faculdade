@@ -1,0 +1,230 @@
+import tkinter as tk
+from tkinter import messagebox, ttk, filedialog
+from datetime import datetime
+import csv
+import json
+from tkcalendar import Calendar
+import threading
+import time
+
+class GerenciadorDeTarefas:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Gerenciador de Tarefas")
+        self.root.geometry("600x800")
+        self.root.configure(bg="#2e2e2e")
+
+        self.tarefas = []
+        self.historico_tarefas = []
+        self.data_selecionada = None
+
+        self.criar_widgets()
+        self.carregar_tarefas()
+        self.iniciar_notificacoes()
+
+    def criar_widgets(self):
+        main_frame = ttk.Frame(self.root, padding=10, style='DarkFrame.TFrame')
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+        title_label = ttk.Label(main_frame, text="Gerenciador de Tarefas", font=("Helvetica", 18, "bold"), background="#4CAF50", foreground="white")
+        title_label.pack(pady=10, fill=tk.X)
+
+        self.calendario = Calendar(main_frame, selectmode='day', background='darkblue', foreground='white', bordercolor='black', headersbackground='darkgreen')
+        self.calendario.pack(pady=10)
+
+        self.tarefa_label = ttk.Label(main_frame, text="Tarefa", font=("Helvetica", 12), background="#2e2e2e", foreground="white")
+        self.tarefa_label.pack(pady=5)
+        self.tarefa_entry = ttk.Entry(main_frame, width=50, font=("Helvetica", 12), foreground="black", background="#3a3a3a")
+        self.tarefa_entry.pack(pady=5)
+
+        self.prioridade_label = ttk.Label(main_frame, text="Prioridade", font=("Helvetica", 12), background="#2e2e2e", foreground="white")
+        self.prioridade_label.pack(pady=5)
+        self.prioridade_combo = ttk.Combobox(main_frame, values=["Baixa", "Média", "Alta"], state="readonly")
+        self.prioridade_combo.pack(pady=5)
+        self.prioridade_combo.current(0)
+
+        self.pesquisa_label = ttk.Label(main_frame, text="Pesquisar Tarefa", font=("Helvetica", 12), background="#2e2e2e", foreground="white")
+        self.pesquisa_label.pack(pady=5)
+        self.pesquisa_entry = ttk.Entry(main_frame, width=50, font=("Helvetica", 12), foreground="black", background="#3a3a3a")
+        self.pesquisa_entry.pack(pady=5)
+        self.pesquisa_entry.bind("<KeyRelease>", self.pesquisar_tarefa)
+
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(pady=10)
+
+        btn_style = {'width': 15, 'style': 'Accent.TButton'}
+
+        self.adicionar_tarefa_button = ttk.Button(button_frame, text="Adicionar Tarefa", command=self.adicionar_tarefa, **btn_style)
+        self.adicionar_tarefa_button.grid(row=0, column=0, padx=5)
+
+        self.editar_tarefa_button = ttk.Button(button_frame, text="Editar Tarefa", command=self.editar_tarefa, **btn_style)
+        self.editar_tarefa_button.grid(row=0, column=1, padx=5)
+
+        self.remover_tarefa_button = ttk.Button(button_frame, text="Remover Tarefa(s)", command=self.remover_tarefas, **btn_style)
+        self.remover_tarefa_button.grid(row=0, column=2, padx=5)
+
+        self.ordenar_tarefa_button = ttk.Button(button_frame, text="Ordenar Tarefas", command=self.ordenar_tarefas, **btn_style)
+        self.ordenar_tarefa_button.grid(row=0, column=3, padx=5)
+
+        self.salvar_tarefa_button = ttk.Button(button_frame, text="Salvar Tarefas", command=self.salvar_tarefas, **btn_style)
+        self.salvar_tarefa_button.grid(row=0, column=4, padx=5)
+
+        self.exportar_csv_button = ttk.Button(button_frame, text="Exportar CSV", command=self.exportar_para_csv, **btn_style)
+        self.exportar_csv_button.grid(row=0, column=5, padx=5)
+
+        self.exportar_json_button = ttk.Button(button_frame, text="Exportar JSON", command=self.exportar_para_json, **btn_style)
+        self.exportar_json_button.grid(row=0, column=6, padx=5)
+
+        self.filtro_data_button = ttk.Button(button_frame, text="Filtrar por Data", command=self.filtrar_por_data, **btn_style)
+        self.filtro_data_button.grid(row=0, column=7, padx=5)
+
+        self.agrupamento_prioridade_button = ttk.Button(button_frame, text="Agrupar por Prioridade", command=self.ordenar_tarefas_por_prioridade, **btn_style)
+        self.agrupamento_prioridade_button.grid(row=0, column=8, padx=5)
+
+        self.tarefa_listbox_label = ttk.Label(main_frame, text="Tarefas", font=("Helvetica", 12), background="#2e2e2e", foreground="white")
+        self.tarefa_listbox_label.pack(pady=5)
+
+        self.tarefa_listbox = tk.Listbox(main_frame, width=70, height=15, font=("Helvetica", 12), bg="#3a3a3a", fg="white", selectmode=tk.MULTIPLE, highlightbackground="#4CAF50")
+        self.tarefa_listbox.pack(pady=10)
+
+        style = ttk.Style()
+        style.configure("Accent.TButton", background="#4CAF50", foreground="black", font=("Helvetica", 12))
+        style.map("Accent.TButton", background=[('active', '#45a049')])
+        style.configure('DarkFrame.TFrame', background="#2e2e2e")
+        style.configure('DarkLabel.TLabel', background="#2e2e2e", foreground="white")
+
+        self.data_label = ttk.Label(main_frame, text="Data Selecionada:", font=("Helvetica", 12), background="#2e2e2e", foreground="white")
+        self.data_label.pack(pady=5)
+
+    def adicionar_tarefa(self):
+        tarefa = self.tarefa_entry.get()
+        data = self.calendario.get_date()
+        prioridade = self.prioridade_combo.get()
+
+        if tarefa:
+            self.tarefas.append({"tarefa": tarefa, "data": data, "prioridade": prioridade, "completa": False})
+            self.atualizar_lista_tarefas()
+            self.limpar_campos()
+        else:
+            messagebox.showwarning("Aviso", "Por favor, insira uma tarefa.")
+
+    def editar_tarefa(self):
+        try:
+            indices_selecionados = self.tarefa_listbox.curselection()
+            if len(indices_selecionados) == 1:
+                indice = indices_selecionados[0]
+                tarefa = self.tarefas[indice]
+                self.tarefa_entry.delete(0, tk.END)
+                self.tarefa_entry.insert(0, tarefa["tarefa"])
+                self.prioridade_combo.set(tarefa["prioridade"])
+                self.calendario.selection_set(tarefa["data"])
+                self.remover_tarefa(indice)
+            else:
+                messagebox.showwarning("Aviso", "Por favor, selecione uma única tarefa para editar.")
+        except IndexError:
+            messagebox.showwarning("Aviso", "Por favor, selecione uma tarefa para editar.")
+
+    def remover_tarefas(self):
+        indices_selecionados = self.tarefa_listbox.curselection()
+        if indices_selecionados:
+            for indice in sorted(indices_selecionados, reverse=True):
+                self.tarefas[indice]['completa'] = True
+                self.historico_tarefas.append(self.tarefas[indice])
+                del self.tarefas[indice]
+            self.atualizar_lista_tarefas()
+        else:
+            messagebox.showwarning("Aviso", "Por favor, selecione uma ou mais tarefas para remover.")
+
+    def atualizar_lista_tarefas(self, tarefas=None):
+        self.tarefa_listbox.delete(0, tk.END)
+        tarefas = tarefas or self.tarefas
+        
+        prioridade_cor = {
+            "Baixa": "green",
+            "Média": "orange",
+            "Alta": "red"
+        }
+
+        for tarefa in tarefas:
+            prioridade = tarefa["prioridade"]
+            cor = prioridade_cor.get(prioridade, "white")
+            estado = "gray" if tarefa["completa"] else cor
+            self.tarefa_listbox.insert(tk.END, f"{tarefa['tarefa']} | {tarefa['data']} | {prioridade}", {'bg': estado})
+
+    def pesquisar_tarefa(self, event):
+        pesquisa = self.pesquisa_entry.get().lower()
+        tarefas_filtradas = [tarefa for tarefa in self.tarefas if pesquisa in tarefa['tarefa'].lower()]
+        self.atualizar_lista_tarefas(tarefas_filtradas)
+
+    def filtrar_por_data(self):
+        data_filtro = self.calendario.get_date()
+        tarefas_filtradas = [tarefa for tarefa in self.tarefas if tarefa['data'] == data_filtro]
+        self.atualizar_lista_tarefas(tarefas_filtradas)
+
+    def ordenar_tarefas(self):
+        self.tarefas.sort(key=lambda x: datetime.strptime(x['data'], "%d/%m/%Y"))
+        self.atualizar_lista_tarefas()
+
+    def ordenar_tarefas_por_prioridade(self):
+        prioridades = {"Baixa": 1, "Média": 2, "Alta": 3}
+        self.tarefas.sort(key=lambda x: prioridades[x['prioridade']])
+        self.atualizar_lista_tarefas()
+
+    def salvar_tarefas(self):
+        caminho_arquivo = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+        if caminho_arquivo:
+            with open(caminho_arquivo, 'w', newline='') as arquivo_csv:
+                writer = csv.DictWriter(arquivo_csv, fieldnames=["tarefa", "data", "prioridade", "completa"])
+                writer.writeheader()
+                writer.writerows(self.tarefas)
+            messagebox.showinfo("Info", "Tarefas salvas com sucesso!")
+
+    def exportar_para_csv(self):
+        caminho_arquivo = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")])
+        if caminho_arquivo:
+            with open(caminho_arquivo, 'w', newline='') as arquivo_csv:
+                writer = csv.DictWriter(arquivo_csv, fieldnames=["tarefa", "data", "prioridade", "completa"])
+                writer.writeheader()
+                writer.writerows(self.tarefas)
+            messagebox.showinfo("Info", "Tarefas exportadas para CSV com sucesso!")
+
+    def exportar_para_json(self):
+        caminho_arquivo = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
+        if caminho_arquivo:
+            with open(caminho_arquivo, 'w') as arquivo_json:
+                json.dump(self.tarefas, arquivo_json)
+            messagebox.showinfo("Info", "Tarefas exportadas para JSON com sucesso!")
+
+    def limpar_campos(self):
+        self.tarefa_entry.delete(0, tk.END)
+        self.prioridade_combo.set("Baixa")
+
+    def iniciar_notificacoes(self):
+        threading.Thread(target=self.verificar_notificacoes, daemon=True).start()
+
+    def verificar_notificacoes(self):
+        while True:
+            agora = datetime.now()
+            for tarefa in self.tarefas:
+                data_tarefa = datetime.strptime(tarefa["data"], "%d/%m/%Y")
+                if data_tarefa.date() == agora.date() and not tarefa["completa"]:
+                    hora_notificacao = agora.replace(hour=8, minute=0)  # Exemplo: Notificação às 08:00
+                    if agora >= hora_notificacao:
+                        messagebox.showinfo("Notificação", f"Tarefa: {tarefa['tarefa']} - Data: {tarefa['data']}")
+            time.sleep(60)  # Verifica a cada minuto
+
+    def carregar_tarefas(self):
+        try:
+            with open('tarefas.csv', newline='') as arquivo_csv:
+                reader = csv.DictReader(arquivo_csv)
+                for row in reader:
+                    row["completa"] = row["completa"] == "True"
+                    self.tarefas.append(row)
+            self.atualizar_lista_tarefas()
+        except FileNotFoundError:
+            pass
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = GerenciadorDeTarefas(root)
+    root.mainloop()
